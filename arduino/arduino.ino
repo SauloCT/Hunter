@@ -1,189 +1,115 @@
-#include <Wire.h>
 #include <ArduinoJson.h>
-#include <AbsMouse.h>
-#include <hiduniversal.h>
-#include "hidmouserptparser.h"
+#include <Mouse.h>
+#include <Keyboard.h>  // para emular eventos de teclado
 
-// ACTION LIST
-// 0 -> moveTo (a, x, y)
-// 1 -> moveToAndClick (a, x, y)
-// 2 -> moveToAndRightClick (a, x, y)
-// 3 -> dragTo (a, x, y)
-// 4 -> pressMiddle (a, x = 0, y = 0)
-// 5 -> updateMousePosition (a, x, y)
+// Variáveis para rastrear posição do mouse
+int currentX = 0;
+int currentY = 0;
+const int newW = 1920, newH = 1080;
+const int oldW = 1366, oldH = 768;
 
-int currentMouseX = 0;
-int currentMouseY = 0;
-
-int new_width = 1920;
-int new_height = 1080;
-
-int old_width = 1366;
-int old_height = 768;
-
-USB Usb;
-HIDUniversal Hid(&Usb);
-HIDMouseReportParser Mou(nullptr);
-
-float lerp(float a, float b, float t) {
+// Interpolação linear para smoothMove
+float lerpF(float a, float b, float t) {
   return a + t * (b - a);
 }
 
-void smooth_move(int steps, int delayTime, int targetX, int targetY) {
-  int x_new = (int)((targetX * new_width) / old_width);
-  int y_new = (int)((targetY * new_height) / old_height);
-
+// Move o mouse suavemente em pequenos passos
+void smoothMove(int steps, int delayMs, int targetX, int targetY) {
+  int x_new = (targetX * newW) / oldW;
+  int y_new = (targetY * newH) / oldH;
   for (int i = 1; i <= steps; i++) {
     float t = i / float(steps);
-
-    int x = lerp(currentMouseX, x_new, t);
-    int y = lerp(currentMouseY, y_new, t);
-
-    // Movimento suavizado do mouse
-    AbsMouse.move(x, y);
-    currentMouseX = x;
-    currentMouseY = y;
-
-    delay(delayTime);  // Ajuste o atraso conforme necessário para suavizar o movimento
+    int x = lerpF(currentX, x_new, t);
+    int y = lerpF(currentY, y_new, t);
+    Mouse.move(x - currentX, y - currentY);
+    currentX = x;
+    currentY = y;
+    delay(delayMs);
   }
 }
 
-void receiveEvent(uint8_t byteCount) {
-  // Ler os dados JSON da I2C
-  String receivedString = "";
-  while (Wire.available()) {
-    char c = Wire.read();
-    receivedString += c;
-  }
+// Processa JSON recebido e executa ação correspondente
+void receiveJson(DynamicJsonDocument &doc) {
+  int a = doc["a"];
+  int x = doc.containsKey("x") ? doc["x"] : 0;
+  int y = doc.containsKey("y") ? doc["y"] : 0;
 
-  // Parse JSON
-  DynamicJsonDocument doc(200);
-  DeserializationError error = deserializeJson(doc, receivedString);
-
-  if (!error) {
-    int a = doc["a"];
-    int x = doc["x"];
-    int y = doc["y"];
-
-    if (a == 0) {
-      smooth_move(1000, 20, x, y);
-    } else if (a == 1) {
-      smooth_move(1000, 20, x, y);
-      AbsMouse.press(MOUSE_LEFT);
-      AbsMouse.release(MOUSE_LEFT);
-    } else if (a == 2) {
-      smooth_move(1000, 20, x, y);
-      AbsMouse.press(MOUSE_RIGHT);
-      AbsMouse.release(MOUSE_RIGHT);
-    } else if (a == 3) {
-      AbsMouse.press(MOUSE_LEFT);
-      smooth_move(1000, 20, x, y);
-      AbsMouse.release(MOUSE_LEFT);
-    } else if (a == 4) {
-      AbsMouse.press(MOUSE_MIDDLE);
-      AbsMouse.release(MOUSE_MIDDLE);
-    } else if (a == 5) {
-      currentMouseX = x;
-      currentMouseY = y;
+  switch (a) {
+    case 0:
+      Serial.println("CASE 0: smoothMove");
+      smoothMove(50, 10, x, y);
+      break;
+    case 1:
+      Serial.println("CASE 1: click left");
+      smoothMove(50, 10, x, y);
+      Mouse.click(MOUSE_LEFT);
+      break;
+    case 2:
+      Serial.println("CASE 2: click right");
+      smoothMove(50, 10, x, y);
+      Mouse.click(MOUSE_RIGHT);
+      break;
+    case 3:
+      Serial.println("CASE 3: drag");
+      Mouse.press(MOUSE_LEFT);
+      smoothMove(50, 10, x, y);
+      Mouse.release(MOUSE_LEFT);
+      break;
+    case 4:
+      Serial.println("CASE 4: click middle");
+      Mouse.click(MOUSE_MIDDLE);
+      break;
+    case 5:
+      Serial.println("CASE 5: update pos");
+      currentX = x;
+      currentY = y;
+      break;
+    case 6: {
+      // Emula pressionamento de tecla única
+      const char* keyStr = doc["k"];
+      if (keyStr && strlen(keyStr) > 0) {
+        char key = keyStr[0];
+        Serial.print("CASE 6: key ");
+        Serial.println(key);
+        Keyboard.press(key);
+        delay(10);
+        Keyboard.release(key);
+      }
+      break;
     }
-  } else {
-    // Serial.print("Error parsing JSON: ");
-    // Serial.println(error.c_str());
+    case 99:
+      // Handshake: responde ao Python
+      Serial.println("{\"ack\":\"arduino\"}");
+      break;
+    default:
+      Serial.print("CASE ?? a=");
+      Serial.println(a);
+      break;
   }
 }
 
 void setup() {
-  Wire.begin(8);  // I2C Address
-  Wire.onReceive(receiveEvent);
-  // Serial.begin(115200);
-  AbsMouse.init(1920, 1080);
+  // Inicializa Serial USB para comandos JSON
+  Serial.begin(115200);
+  while (!Serial);
+  Serial.println("Ready");  // Indica que o Arduino está pronto
 
-  if (Usb.Init() == -1)
-		// Serial.println("OSC did not start.");
-	
-	delay(200);
-
-	if (!Hid.SetReportParser(0, &Mou))
-		ErrorMessage<uint8_t > (PSTR("SetReportParser"), 1);
+  // Inicializa HID mouse e teclado
+  Mouse.begin();
+  Keyboard.begin();
 }
 
 void loop() {
-  Usb.Task();
-}
-
-void onButtonDown(uint16_t buttonId) {
-	AbsMouse.press(buttonId);
-	// Serial.print("Button ");
-	switch (buttonId) {
-		case MOUSE_LEFT:
-			// Serial.print("MOUSE_LEFT");
-			break;
-
-		case MOUSE_RIGHT:
-			// Serial.print("MOUSE_RIGHT");
-			break;
-		
-		case MOUSE_MIDDLE:
-			// Serial.print("MOUSE_MIDDLE");
-			break;
-
-		case MOUSE_BUTTON4:
-			// Serial.print("MOUSE_BUTTON4");
-			break;
-
-		case MOUSE_BUTTON5:
-			// Serial.print("MOUSE_BUTTON5");
-			break;
-		default:
-			// Serial.print("OTHER_BUTTON");
-			break;
-	}
-	// Serial.println(" pressed");
-}
-
-void onButtonUp(uint16_t buttonId) {
-	AbsMouse.release(buttonId);
-	Serial.print("Button ");
-	switch (buttonId) {
-		case MOUSE_LEFT:
-			// Serial.print("MOUSE_LEFT");
-			break;
-
-		case MOUSE_RIGHT:
-			// Serial.print("MOUSE_RIGHT");
-			break;
-		
-		case MOUSE_MIDDLE:
-			// Serial.print("MOUSE_MIDDLE");
-			break;
-
-		case MOUSE_BUTTON4:
-			// Serial.print("MOUSE_BUTTON4");
-			break;
-
-		case MOUSE_BUTTON5:
-			// Serial.print("MOUSE_BUTTON5");
-			break;
-		default:
-			// Serial.print("OTHER_BUTTON");
-			break;
-	}
-	Serial.println(" released");
-}
-
-void onTiltPress(int8_t tiltValue) {
-	// Serial.print("Tilt pressed: ");
-	// Serial.println(tiltValue);
-}
-
-void onMouseMove(int8_t xMovement, int8_t yMovement, int8_t scrollValue) {
-  currentMouseX += xMovement;
-  currentMouseY += yMovement;
-	AbsMouse.move(currentMouseX, currentMouseY);
-	// Serial.print("Mouse moved:\t");
-	// Serial.print(xMovement);
-	// Serial.print("\t");
-	// Serial.print(yMovement);
-	// Serial.print("\t");
-	// Serial.println(scrollValue);
+  if (Serial.available()) {
+    // Lê até newline (caractere '\n')
+    String s = Serial.readStringUntil('\n');
+    Serial.print("RX: ");
+    Serial.println(s);
+    DynamicJsonDocument doc(256);
+    if (deserializeJson(doc, s) == DeserializationError::Ok) {
+      receiveJson(doc);
+    } else {
+      Serial.println("! JSON Error");
+    }
+  }
 }

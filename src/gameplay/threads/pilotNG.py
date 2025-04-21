@@ -1,4 +1,3 @@
-import pyautogui
 from time import sleep, time
 import traceback
 import sys
@@ -24,9 +23,6 @@ from src.gameplay.healing.observers.swapAmulet import swapAmulet
 from src.gameplay.healing.observers.swapRing import swapRing
 from src.gameplay.targeting import hasCreaturesToAttack
 from src.repositories.gameWindow.creatures import getClosestCreature, getTargetCreature
-
-pyautogui.FAILSAFE = False
-pyautogui.PAUSE = 0
 
 class PilotNGThread:
     # TODO: add typings

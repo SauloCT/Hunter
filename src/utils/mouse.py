@@ -1,4 +1,3 @@
-import pyautogui
 from src.shared.typings import XYCoordinate
 from .ino import sendCommandArduino
 
@@ -26,5 +25,4 @@ def rightClick(windowCoordinate: XYCoordinate = None):
     sendCommandArduino("rightClick")
 
 def scroll(clicks: int):
-    curX, curY = pyautogui.position()
-    sendCommandArduino(f"scroll,{curX}, {curY}, {clicks}")
+    sendCommandArduino(f"scroll,{clicks}")

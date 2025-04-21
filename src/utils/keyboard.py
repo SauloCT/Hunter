@@ -1,6 +1,11 @@
+import json
 from .ino import sendCommandArduino
 
 def getAsciiFromKey(key):
+    """
+    Retorna o código ASCII ou HID da tecla, para validação.
+    Se não for reconhecida, retorna 0.
+    """
     if not key:
         return 0
 
@@ -12,81 +17,78 @@ def getAsciiFromKey(key):
     if sanitized.isalpha() and len(sanitized) == 1:
         return ord(sanitized)
     
-    if sanitized == 'space':
-        return 32
-    elif sanitized == 'esc':
-        return 177
-    elif sanitized == 'ctrl':
-        return 128
-    elif sanitized == 'alt':
-        return 130
-    elif sanitized == 'shift':
-        return 129
-    elif sanitized == 'enter':
-        return 176
-    elif sanitized == 'up':
-        return 218
-    elif sanitized == 'down':
-        return 217
-    elif sanitized == 'left':
-        return 216
-    elif sanitized == 'right':
-        return 215
-    elif sanitized == 'backspace':
-        return 178
-    elif sanitized == 'f1':
-        return 194
-    elif sanitized == 'f2':
-        return 195
-    elif sanitized == 'f3':
-        return 196
-    elif sanitized == 'f4':
-        return 197
-    elif sanitized == 'f5':
-        return 198
-    elif sanitized == 'f6':
-        return 199
-    elif sanitized == 'f7':
-        return 200
-    elif sanitized == 'f8':
-        return 201
-    elif sanitized == 'f9':
-        return 202
-    elif sanitized == 'f10':
-        return 203
-    elif sanitized == 'f11':
-        return 204
-    elif sanitized == 'f12':
-        return 205
-    else:
-        return 0
+    special = {
+        'space': 32,
+        'esc': 177,
+        'ctrl': 128,
+        'alt': 130,
+        'shift': 129,
+        'enter': 176,
+        'up': 218,
+        'down': 217,
+        'left': 216,
+        'right': 215,
+        'backspace': 178,
+        'f1': 194,  'f2': 195,  'f3': 196,  'f4': 197,
+        'f5': 198,  'f6': 199,  'f7': 200,  'f8': 201,
+        'f9': 202,  'f10': 203, 'f11': 204, 'f12': 205
+    }
+    return special.get(sanitized, 0)
+
+def _sendKeyToArduino(key_label: str):
+    """
+    Monta e envia o payload JSON para o Arduino.
+    action=6 dispara o case 6 no sketch, que exibe 'k' na matriz.
+    """
+    payload = {
+        "a": 6,
+        "k": key_label
+    }
+    sendCommandArduino(json.dumps(payload))
 
 def hotkey(*args):
+    """
+    Segura todas as teclas e solta em sequência.
+    Aqui só exibimos cada tecla na matriz; se precisar
+    enviar HID real, implemente no sketch.
+    """
     for key in args:
-        asciiKey = getAsciiFromKey(key)
-        if asciiKey != 0:
-            sendCommandArduino(f"keyDown,{asciiKey}")
-
+        if getAsciiFromKey(key):
+            _sendKeyToArduino(key)
+    # opcional: delay breve entre pressões
+    # time.sleep(0.05)
     for key in args:
-        asciiKey = getAsciiFromKey(key)
-        if asciiKey != 0:
-            sendCommandArduino(f"keyUp,{asciiKey}")
+        if getAsciiFromKey(key):
+            _sendKeyToArduino(key)
 
 def keyDown(key: str):
-    asciiKey = getAsciiFromKey(key)
-    if asciiKey != 0:
-        sendCommandArduino(f"keyDown,{asciiKey}")
+    """
+    Envia tecla como 'pressionada'.
+    """
+    if getAsciiFromKey(key):
+        _sendKeyToArduino(key)
 
 def keyUp(key: str):
-    asciiKey = getAsciiFromKey(key)
-    if asciiKey != 0:
-        sendCommandArduino(f"keyUp,{asciiKey}")
+    """
+    Envia tecla como 'solta'.
+    """
+    if getAsciiFromKey(key):
+        _sendKeyToArduino(key)
 
 def press(*args):
+    """
+    Pressiona e imediatamente solta cada tecla,
+    útil para caracteres únicos.
+    """
     for key in args:
-        asciiKey = getAsciiFromKey(key)
-        if asciiKey != 0:
-            sendCommandArduino(f"press,{asciiKey}")
+        if getAsciiFromKey(key):
+            _sendKeyToArduino(key)
 
 def write(phrase: str):
-    sendCommandArduino(f"write,{phrase}")
+    """
+    Percorre cada caractere da frase e envia
+    para exibir na matriz.
+    """
+    for ch in phrase:
+        if getAsciiFromKey(ch) or ch.isprintable():
+            _sendKeyToArduino(ch)
